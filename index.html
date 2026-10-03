@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Weight">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<title>Weight Tracker</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main id="app">
+
+  <!-- DASHBOARD -->
+  <section class="view" id="view-dashboard" data-view="dashboard">
+    <header class="page-head">
+      <h1>Weight</h1>
+      <button class="btn-ghost" data-action="export">Export Excel</button>
+    </header>
+
+    <div id="empty-state" class="card empty" hidden>
+      <h2>No data yet</h2>
+      <p>Import your existing Excel history, or upload your first Eufy Life screenshot.</p>
+      <div class="row-btns">
+        <button class="btn" data-action="import">Import Excel</button>
+        <button class="btn-secondary" data-action="upload">Upload screenshot</button>
+      </div>
+    </div>
+
+    <div id="dash-content">
+      <div class="card hero">
+        <div class="hero-label">Current weight · <span id="hero-date"></span></div>
+        <div class="hero-value"><span id="hero-weight">–</span><span class="unit">kg</span></div>
+        <div class="hero-delta" id="hero-delta"></div>
+      </div>
+
+      <button class="btn btn-block upload-cta" data-action="upload">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 20h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Upload Eufy screenshot
+      </button>
+
+      <div class="tiles" id="tiles"></div>
+
+      <div class="card chart-card">
+        <div class="chart-head">
+          <h3>Weight trend</h3>
+          <div class="seg" id="range-seg" role="tablist">
+            <button data-range="30">1M</button><button data-range="90">3M</button><button data-range="all" class="on">All</button>
+          </div>
+        </div>
+        <div class="chart-box tall"><canvas id="chart-weight" aria-label="Weight over time"></canvas></div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="chart-head"><h3>Where did the weight go?</h3></div>
+        <p class="sub" id="split-sub"></p>
+        <div class="chart-box short"><canvas id="chart-split" aria-label="Change in fat mass vs lean mass"></canvas></div>
+      </div>
+
+      <div class="pair">
+        <div class="card chart-card">
+          <div class="chart-head"><h3>Body fat</h3><span class="sub" id="bf-now"></span></div>
+          <div class="chart-box"><canvas id="chart-bf" aria-label="Body fat percent over time"></canvas></div>
+        </div>
+        <div class="card chart-card">
+          <div class="chart-head"><h3>Muscle mass</h3><span class="sub" id="mm-now"></span></div>
+          <div class="chart-box"><canvas id="chart-mm" aria-label="Muscle mass over time"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="chart-head">
+          <h3>Any metric</h3>
+          <select id="metric-pick" aria-label="Metric"></select>
+        </div>
+        <div class="chart-box"><canvas id="chart-any" aria-label="Selected metric over time"></canvas></div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="chart-head"><h3>Weekly change</h3><span class="sub legend"><i class="key k1"></i>loss <i class="key k2"></i>gain</span></div>
+        <div class="chart-box"><canvas id="chart-weekly" aria-label="Weekly average weight"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="view" id="view-history" data-view="history" hidden>
+    <header class="page-head">
+      <h1>History</h1>
+      <div class="head-btns">
+        <button class="btn-ghost" data-action="manual" id="btn-manual">+ Manual</button>
+        <button class="btn-ghost" data-action="select-mode" id="btn-select">Select</button>
+      </div>
+    </header>
+    <p class="fineprint hint">Tap a day to see all its values. The bin icon deletes it, and you can undo right after.</p>
+    <ul class="history" id="history-list"></ul>
+    <div class="select-bar" id="select-bar" hidden>
+      <button class="btn-ghost" data-action="select-all" id="btn-sel-all">Select all</button>
+      <button class="btn btn-danger" data-action="delete-selected" id="btn-del-sel" disabled>Delete</button>
+    </div>
+  </section>
+
+  <!-- REVIEW / ENTRY FORM -->
+  <section class="view" id="view-review" data-view="review" hidden>
+    <header class="page-head">
+      <button class="btn-ghost" data-action="cancel-review">Cancel</button>
+      <h1 class="h-center" id="review-title">New entry</h1>
+      <button class="btn-ghost strong" data-action="save-review">Save</button>
+    </header>
+
+    <div id="ocr-progress" class="card progress" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <div><strong id="ocr-status">Reading screenshot…</strong><div class="bar"><i id="ocr-bar"></i></div></div>
+    </div>
+
+    <div id="review-note" class="note" hidden></div>
+    <div class="review-thumbs" id="review-thumbs"></div>
+
+    <form id="review-form" class="card form" autocomplete="off">
+      <label class="field wide"><span>Date</span><input type="date" name="date" required></label>
+      <div id="review-fields" class="fields"></div>
+    </form>
+    <button class="btn btn-block" data-action="save-review">Save entry</button>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="view" id="view-settings" data-view="settings" hidden>
+    <header class="page-head"><h1>Settings</h1></header>
+
+    <div class="card form">
+      <label class="field wide"><span>Goal weight (kg)</span>
+        <input type="number" inputmode="decimal" step="0.05" id="goal-input" placeholder="e.g. 75"></label>
+    </div>
+
+    <h2 class="group-title">Data</h2>
+    <div class="card list">
+      <button class="list-row" data-action="export"><span>Export all to Excel</span><span class="muted" id="count-label"></span></button>
+      <button class="list-row" data-action="import"><span>Import Excel (replaces all data)</span></button>
+      <button class="list-row danger" data-action="wipe"><span>Delete all data</span></button>
+    </div>
+    <p class="fineprint">Everything is stored only on this device, nothing is uploaded anywhere. Export to Excel from time to time as a backup.</p>
+    <p class="fineprint" id="storage-info"></p>
+  </section>
+</main>
+
+<nav class="tabbar" role="tablist">
+  <button data-tab="dashboard" class="on"><svg viewBox="0 0 24 24"><path d="M4 19V10m6 9V5m6 14v-7m4 7H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Dashboard</span></button>
+  <button data-action="upload"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="15" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12.5" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 5l1.5-2h5L16 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Upload</span></button>
+  <button data-tab="history"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>History</span></button>
+  <button data-tab="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9 7 7m10 10 2.1 2.1M4.9 19.1 7 17m10-10 2.1-2.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Settings</span></button>
+</nav>
+
+<!-- Step 1 of an upload: pick the measurement date (Eufy screenshots carry no date) -->
+<dialog id="upload-sheet" class="sheet" aria-labelledby="sheet-title">
+  <div class="sheet-body">
+    <div class="grabber" aria-hidden="true"></div>
+    <h2 id="sheet-title">New measurement</h2>
+    <p class="sub">The Eufy screenshot has no date, so pick the day you weighed in.</p>
+    <div class="field wide date-field">
+      <label for="upload-date">Measurement date</label>
+      <div class="date-btn" id="date-btn">
+        <button type="button" class="cal-icon" data-action="open-calendar" aria-label="Open calendar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 10h18M8 3v4m8-4v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <input type="date" id="upload-date" required>
+      </div>
+      <small id="upload-date-label" class="date-long"></small>
+    </div>
+    <div class="chips" role="group" aria-label="Quick dates">
+      <button type="button" class="chip-btn" data-day="0">Today</button>
+      <button type="button" class="chip-btn" data-day="1">Yesterday</button>
+      <button type="button" class="chip-btn" data-day="2">2 days ago</button>
+    </div>
+    <button type="button" class="btn btn-block" data-action="choose-shot">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M4 20h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Choose screenshot
+    </button>
+    <button type="button" class="btn-ghost btn-block" data-action="close-sheet">Cancel</button>
+  </div>
+</dialog>
+
+<input type="file" id="file-shot" accept="image/*" multiple hidden>
+<input type="file" id="file-xlsx" accept=".xlsx,.xls,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="vendor/chart.umd.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="metrics.js"></script>
+<script src="parser.js"></script>
+<script src="store.js"></script>
+<script src="excel.js"></script>
+<script src="ocr.js"></script>
+<script src="charts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

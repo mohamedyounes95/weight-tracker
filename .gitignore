@@ -1,0 +1,4 @@
+# Personal data: never publish
+data/seed.json
+samples/
+*.xlsx
