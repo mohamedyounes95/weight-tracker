@@ -1,6 +1,6 @@
 // Dashboard charts (Chart.js). Colors come from CSS tokens so light/dark mode both work.
 const Charts = (() => {
-  const instances = {};
+  const instances = {}, builders = {};
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const DAY = 86400000;
   const ts = iso => new Date(iso + 'T12:00:00').getTime();
@@ -80,10 +80,24 @@ const Charts = (() => {
     },
   };
 
-  function make(id, config) {
+  // Charts are built from a stored function so the same chart can be redrawn full screen.
+  function make(id, build) {
+    builders[id] = build;
     if (instances[id]) instances[id].destroy();
-    const el = document.getElementById(id);
-    instances[id] = new Chart(el, config);
+    instances[id] = new Chart(document.getElementById(id), build());
+  }
+
+  // Draws the dashboard chart `id` onto another canvas (the full-screen view). Returns false if there is no chart.
+  function expand(id, canvasId) {
+    if (instances[canvasId]) { instances[canvasId].destroy(); delete instances[canvasId]; }
+    if (!builders[id]) return false;
+    const t = tokens(); applyDefaults(t);
+    instances[canvasId] = new Chart(document.getElementById(canvasId), builders[id](true));
+    return true;
+  }
+
+  function close(canvasId) {
+    if (instances[canvasId]) { instances[canvasId].destroy(); delete instances[canvasId]; }
   }
 
   function lineConfig(points, t, { unit, decimals = 1, goal = null, minSpanDays = 0 }) {
@@ -130,9 +144,9 @@ const Charts = (() => {
       const monday = new Date(d); monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
       const k = monday.toISOString().slice(0, 10);
       if (!weeks.has(k)) weeks.set(k, []);
-      weeks.get(k).push(e.weight);
+      weeks.get(k).push(e);
     }
-    return [...weeks.entries()].map(([k, v]) => ({ week: k, avg: v.reduce((a, b) => a + b, 0) / v.length, n: v.length }));
+    return [...weeks.entries()].map(([k, v]) => ({ week: k, avg: v.reduce((a, e) => a + e.weight, 0) / v.length, days: v.map(e => e.date) }));
   }
 
   function render(entries, { goal, range, anyMetric }) {
@@ -141,12 +155,12 @@ const Charts = (() => {
     // Weight trend (with range filter)
     let w = series(entries, 'weight');
     if (range !== 'all' && w.length) { const cut = w[w.length - 1].x - range * DAY; w = w.filter(p => p.x >= cut); }
-    make('chart-weight', lineConfig(w, t, { unit: 'kg', goal, minSpanDays: 7 }));
+    make('chart-weight', () => lineConfig(w, t, { unit: 'kg', goal, minSpanDays: 7 }));
 
-    make('chart-bf', lineConfig(series(entries, 'bodyFatPct'), t, { unit: '%' }));
-    make('chart-mm', lineConfig(series(entries, 'muscleMass'), t, { unit: 'kg' }));
+    make('chart-bf', () => lineConfig(series(entries, 'bodyFatPct'), t, { unit: '%' }));
+    make('chart-mm', () => lineConfig(series(entries, 'muscleMass'), t, { unit: 'kg' }));
     const m = Metrics.byKey[anyMetric];
-    make('chart-any', lineConfig(series(entries, anyMetric), t, { unit: m.unit, decimals: m.step >= 1 ? 0 : 1 }));
+    make('chart-any', () => lineConfig(series(entries, anyMetric), t, { unit: m.unit, decimals: m.step >= 1 ? 0 : 1 }));
 
     // Where did the weight go: change since first full body-composition scan
     const full = entries.filter(e => typeof e.bodyFatMass === 'number' && typeof e.leanMass === 'number' && typeof e.weight === 'number');
@@ -156,7 +170,7 @@ const Charts = (() => {
       const dw = b.weight - a.weight, df = b.bodyFatMass - a.bodyFatMass, dl = b.leanMass - a.leanMass;
       const share = dw < 0 && df < 0 ? Math.round(Math.min(1, df / dw) * 100) : null;
       sub.textContent = `Since your first full scan on ${fmtDay(ts(a.date))}` + (share !== null ? `, about ${share}% of the weight lost was fat.` : '.');
-      make('chart-split', {
+      make('chart-split', () => ({
         type: 'bar',
         data: { labels: ['Weight', 'Fat mass', 'Lean mass'], datasets: [{
           data: [dw, df, dl].map(v => Math.round(v * 100) / 100), backgroundColor: t.s1, maxBarThickness: 22,
@@ -174,33 +188,45 @@ const Charts = (() => {
           },
         },
         plugins: [endLabel],
-      });
+      }));
     } else {
       sub.textContent = 'Needs at least two full body-composition scans.';
       if (instances['chart-split']) { instances['chart-split'].destroy(); delete instances['chart-split']; }
+      delete builders['chart-split'];
     }
 
     // Week-over-week change of the weekly average (zero baseline; loss and gain colored by sign)
     const wk = weekly(entries);
-    const ch = wk.slice(1).map((x, i) => ({ week: x.week, d: Math.round((x.avg - wk[i].avg) * 100) / 100, avg: x.avg }));
-    make('chart-weekly', {
+    // Bars are Monday–Sunday weeks, labelled by the Monday they start on (more labels fit full screen).
+    // The tooltip names the full range, the weigh-in days used, and flags a week that is not over yet.
+    const now = Date.now();
+    const ch = wk.slice(1).map((x, i) => {
+      const start = ts(x.week), end = start + 6 * DAY;
+      return { d: Math.round((x.avg - wk[i].avg) * 100) / 100, avg: x.avg, days: x.days,
+        range: `${fmtDay(start)} – ${fmtDay(end)}`, start: fmtDay(start), open: end >= now - DAY / 2 };
+    });
+    make('chart-weekly', (big = false) => ({
       type: 'bar',
-      data: { labels: ch.map(x => fmtDay(ts(x.week))), datasets: [{
+      data: { labels: ch.map(x => x.start), datasets: [{
         data: ch.map(x => x.d), backgroundColor: ch.map(x => x.d > 0 ? t.s2 : t.s1), maxBarThickness: 22, borderRadius: 4, borderSkipped: 'start',
       }] },
       options: {
         scales: {
-          x: { grid: { display: false }, border: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 6 } },
+          x: { grid: { display: false }, border: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: big ? 14 : 6 } },
           y: { grid: { color: c => c.tick.value === 0 ? t.axis : t.grid }, border: { display: false },
                ticks: { maxTicksLimit: 5, callback: v => `${v > 0 ? '+' : ''}${fmtNum(v)}`, font: { variant: 'tabular-nums' } } },
         },
         plugins: { tooltip: { callbacks: {
-          title: i => `Week of ${i[0].label}`,
-          label: i => `${i.parsed.y > 0 ? '+' : ''}${fmtNum(i.parsed.y, 2)} kg vs previous week (avg ${fmtNum(ch[i.dataIndex].avg, 2)} kg)`,
+          title: i => { const x = ch[i[0].dataIndex]; return `${x.range}${x.open ? ' (week in progress)' : ''}`; },
+          label: i => {
+            const x = ch[i.dataIndex];
+            return [`${i.parsed.y > 0 ? '+' : ''}${fmtNum(i.parsed.y, 2)} kg vs previous week`, `Average ${fmtNum(x.avg, 2)} kg`,
+              `${x.days.length} weigh-in${x.days.length > 1 ? 's' : ''}: ${x.days.map(d => fmtDay(ts(d))).join(', ')}`];
+          },
         } } },
       },
-    });
+    }));
   }
 
-  return { render, fmtNum, fmtDay, ts };
+  return { render, expand, close, fmtNum, fmtDay, ts };
 })();

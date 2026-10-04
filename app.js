@@ -315,6 +315,62 @@
     } catch (e) { console.error(e); toast('Import failed: ' + e.message); }
   }
 
+  // ---------- full-screen chart ----------
+  // Controls (range buttons, metric picker, legend) move into the full-screen header and go back on close.
+  const full = { id: null, moved: [] };
+  const EXPAND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function openFull(id, fromHistory = false) {
+    closeFull();
+    const card = $('#' + id).closest('.chart-card');
+    if (!Charts.expand(id, 'chart-full-canvas')) return toast('Not enough data for this chart yet');
+    full.id = id;
+    $('#full-title').textContent = card.querySelector('h3').textContent;
+    const sub = card.querySelector('p.sub');
+    $('#full-sub').textContent = sub ? sub.textContent : '';
+    full.moved = [...card.querySelector('.chart-head').children]
+      .filter(n => n.tagName !== 'H3' && !n.classList.contains('expand-btn'))
+      .map(n => ({ n, parent: n.parentNode, next: n.nextSibling }));
+    full.moved.forEach(m => $('#full-tools').append(m.n));
+    $('#chart-full').hidden = false;
+    document.body.classList.add('full-open');
+    if (!fromHistory) history.pushState({ chart: id }, '', '#chart');   // the phone's Back button closes it
+    $('#chart-full').focus({ preventScroll: true });
+  }
+
+  function closeFull() {
+    if (!full.id) return;
+    full.moved.forEach(m => m.parent.insertBefore(m.n, m.next));
+    full.moved = []; full.id = null;
+    Charts.close('chart-full-canvas');
+    $('#chart-full').hidden = true;
+    document.body.classList.remove('full-open');
+  }
+
+  // Redraws the dashboard and, if open, the full-screen copy (after range/metric/theme changes).
+  function redrawCharts() {
+    if (state.view === 'dashboard') renderDashboard();
+    if (full.id && !Charts.expand(full.id, 'chart-full-canvas')) history.back();
+  }
+
+  // ---------- theme ----------
+  const THEME_COLORS = { light: '#f9f9f7', dark: '#0d0d0d' };
+
+  function applyTheme(pref) {
+    const root = document.documentElement;
+    if (pref === 'light' || pref === 'dark') root.dataset.theme = pref; else delete root.dataset.theme;
+    // Keep the phone's status-bar color in step with a forced theme.
+    $$('meta[name="theme-color"]').forEach(m => {
+      const own = m.media.includes('dark') ? THEME_COLORS.dark : THEME_COLORS.light;
+      m.content = THEME_COLORS[pref] || own;
+    });
+    $$('#theme-seg button').forEach(b => {
+      const on = b.dataset.themePick === (pref || 'system');
+      b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on));
+    });
+  }
+  const savedTheme = () => { try { return localStorage.getItem('theme') || 'system'; } catch { return 'system'; } };
+
   // ---------- data ----------
   async function reload() { state.entries = await Store.all(); }
 
@@ -334,10 +390,16 @@
     if (t.dataset.tab) return show(t.dataset.tab);
     if (t.dataset.tabGo) return show(t.dataset.tabGo);
     if (t.dataset.day !== undefined) return setUploadDate(isoDaysAgo(+t.dataset.day));
+    if (t.dataset.expand) return openFull(t.dataset.expand);
+    if (t.dataset.themePick) {
+      try { localStorage.setItem('theme', t.dataset.themePick); } catch {}
+      applyTheme(t.dataset.themePick);
+      return redrawCharts();
+    }
     if (t.dataset.range) {
       state.range = t.dataset.range === 'all' ? 'all' : +t.dataset.range;
       $$('#range-seg button').forEach(b => b.classList.toggle('on', b === t));
-      return Charts.render(state.entries, state);
+      return redrawCharts();
     }
     if (t.dataset.edit) {
       const e = state.entries.find(x => x.id === +t.dataset.edit);
@@ -364,6 +426,7 @@
         break;
       }
       case 'close-sheet': $('#upload-sheet').close(); break;
+      case 'close-full': history.state && history.state.chart ? history.back() : closeFull(); break;
       case 'select-mode':
         state.selecting = !state.selecting; state.selected.clear(); renderHistory(); break;
       case 'select-all':
@@ -411,12 +474,28 @@
   });
   $('#metric-pick').addEventListener('change', async e => {
     state.anyMetric = e.target.value; await Store.setSetting('anyMetric', state.anyMetric);
-    Charts.render(state.entries, state);
+    redrawCharts();
   });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.view === 'dashboard' && renderDashboard());
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawCharts);
+  // Tap a chart itself to open it full screen.
+  $('#dash-content').addEventListener('click', e => {
+    const box = e.target.closest('.chart-box');
+    if (box) openFull(box.querySelector('canvas').id);
+  });
+  window.addEventListener('popstate', e => {
+    if (e.state && e.state.chart && state.view === 'dashboard') openFull(e.state.chart, true); else closeFull();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && full.id) history.state && history.state.chart ? history.back() : closeFull(); });
 
   // ---------- boot ----------
   (async () => {
+    applyTheme(savedTheme());
+    $$('.chart-card').forEach(card => {
+      const id = card.querySelector('canvas').id, name = card.querySelector('h3').textContent;
+      card.querySelector('.chart-head').insertAdjacentHTML('beforeend',
+        `<button class="expand-btn" data-expand="${id}" aria-label="Open ${esc(name)} full screen">${EXPAND_ICON}</button>`);
+    });
+    if (location.hash === '#chart') history.replaceState(null, '', location.pathname + location.search);
     buildFields();
     $('#metric-pick').innerHTML = METRICS.filter(m => !m.text && !['weight', 'bodyFatPct', 'muscleMass'].includes(m.key))
       .map(m => `<option value="${m.key}">${m.label}</option>`).join('');
