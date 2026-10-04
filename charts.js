@@ -87,12 +87,13 @@ const Charts = (() => {
     instances[id] = new Chart(document.getElementById(id), build());
   }
 
-  // Draws the dashboard chart `id` onto another canvas (the full-screen view). Returns false if there is no chart.
-  function expand(id, canvasId) {
+  // Draws the dashboard chart `id` onto another canvas (the full-screen view), optionally limited to the
+  // last `range` days. Returns false if there is no chart.
+  function expand(id, canvasId, range = 'all') {
     if (instances[canvasId]) { instances[canvasId].destroy(); delete instances[canvasId]; }
     if (!builders[id]) return false;
     const t = tokens(); applyDefaults(t);
-    instances[canvasId] = new Chart(document.getElementById(canvasId), builders[id](true));
+    instances[canvasId] = new Chart(document.getElementById(canvasId), builders[id](true, range));
     return true;
   }
 
@@ -134,6 +135,13 @@ const Charts = (() => {
     };
   }
 
+  // Keeps the last `range` days counted back from the newest point ('all' keeps everything).
+  const clip = (points, range) => {
+    if (range === 'all' || !points.length) return points;
+    const cut = points[points.length - 1].x - range * DAY;
+    return points.filter(p => p.x >= cut);
+  };
+
   const series = (entries, key) => entries.filter(e => typeof e[key] === 'number').map(e => ({ x: ts(e.date), y: e[key] }));
 
   function weekly(entries) {
@@ -153,14 +161,14 @@ const Charts = (() => {
     const t = tokens(); applyDefaults(t);
 
     // Weight trend (with range filter)
-    let w = series(entries, 'weight');
-    if (range !== 'all' && w.length) { const cut = w[w.length - 1].x - range * DAY; w = w.filter(p => p.x >= cut); }
+    const w = clip(series(entries, 'weight'), range);
     make('chart-weight', () => lineConfig(w, t, { unit: 'kg', goal, minSpanDays: 7 }));
 
-    make('chart-bf', () => lineConfig(series(entries, 'bodyFatPct'), t, { unit: '%' }));
-    make('chart-mm', () => lineConfig(series(entries, 'muscleMass'), t, { unit: 'kg' }));
+    // These three show everything on the dashboard; the full-screen view can pick a range.
+    make('chart-bf', (big, r = 'all') => lineConfig(clip(series(entries, 'bodyFatPct'), r), t, { unit: '%' }));
+    make('chart-mm', (big, r = 'all') => lineConfig(clip(series(entries, 'muscleMass'), r), t, { unit: 'kg' }));
     const m = Metrics.byKey[anyMetric];
-    make('chart-any', () => lineConfig(series(entries, anyMetric), t, { unit: m.unit, decimals: m.step >= 1 ? 0 : 1 }));
+    make('chart-any', (big, r = 'all') => lineConfig(clip(series(entries, anyMetric), r), t, { unit: m.unit, decimals: m.step >= 1 ? 0 : 1 }));
 
     // Where did the weight go: change since first full body-composition scan
     const full = entries.filter(e => typeof e.bodyFatMass === 'number' && typeof e.leanMass === 'number' && typeof e.weight === 'number');

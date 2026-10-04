@@ -1,6 +1,6 @@
 // Offline cache: everything the app needs (including the OCR engine + English model) is stored on install.
 // Bump VERSION whenever any file changes so phones pick up the update.
-const VERSION = 'wt-v9';
+const VERSION = 'wt-v10';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.json',
   'metrics.js', 'parser.js', 'store.js', 'excel.js', 'ocr.js', 'charts.js', 'app.js',

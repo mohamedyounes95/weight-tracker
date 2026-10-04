@@ -147,6 +147,12 @@ select { background: var(--page); border: 1px solid var(--border); border-radius
 .full-titles .sub { margin: 2px 0 0; }
 .full-tools { display: flex; align-items: center; gap: 8px; }
 .full-tools select { max-width: 200px; }
+/* Phone upright: title + Done on top, controls on their own row below */
+@media (max-width: 560px) {
+  .full-tools { order: 3; width: 100%; justify-content: space-between; }
+  .full-tools:empty { display: none; }
+  .full-tools select { max-width: 60%; }
+}
 .full-box { position: relative; flex: 1; min-height: 0; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 10px 8px; }
 body.full-open { overflow: hidden; }
 .theme-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

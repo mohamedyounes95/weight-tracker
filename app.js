@@ -317,13 +317,14 @@
 
   // ---------- full-screen chart ----------
   // Controls (range buttons, metric picker, legend) move into the full-screen header and go back on close.
-  const full = { id: null, moved: [] };
+  const full = { id: null, moved: [], ranges: {} };   // ranges: per-chart choice in full screen, kept while the app is open
+  const FULL_RANGE = ['chart-bf', 'chart-mm', 'chart-any'];
   const EXPAND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function openFull(id, fromHistory = false) {
     closeFull();
     const card = $('#' + id).closest('.chart-card');
-    if (!Charts.expand(id, 'chart-full-canvas')) return toast('Not enough data for this chart yet');
+    if (!Charts.expand(id, 'chart-full-canvas', full.ranges[id])) return toast('Not enough data for this chart yet');
     full.id = id;
     $('#full-title').textContent = card.querySelector('h3').textContent;
     const sub = card.querySelector('p.sub');
@@ -332,6 +333,11 @@
       .filter(n => n.tagName !== 'H3' && !n.classList.contains('expand-btn'))
       .map(n => ({ n, parent: n.parentNode, next: n.nextSibling }));
     full.moved.forEach(m => $('#full-tools').append(m.n));
+    if (FULL_RANGE.includes(id)) {
+      const on = full.ranges[id] || 'all';
+      $('#full-tools').insertAdjacentHTML('beforeend', `<div class="seg" id="full-range" role="tablist">` +
+        [['30', '1M'], ['90', '3M'], ['all', 'All']].map(([v, l]) => `<button data-full-range="${v}"${String(on) === v ? ' class="on"' : ''}>${l}</button>`).join('') + `</div>`);
+    }
     $('#chart-full').hidden = false;
     document.body.classList.add('full-open');
     if (!fromHistory) history.pushState({ chart: id }, '', '#chart');   // the phone's Back button closes it
@@ -342,6 +348,7 @@
     if (!full.id) return;
     full.moved.forEach(m => m.parent.insertBefore(m.n, m.next));
     full.moved = []; full.id = null;
+    $('#full-range')?.remove();
     Charts.close('chart-full-canvas');
     $('#chart-full').hidden = true;
     document.body.classList.remove('full-open');
@@ -350,7 +357,7 @@
   // Redraws the dashboard and, if open, the full-screen copy (after range/metric/theme changes).
   function redrawCharts() {
     if (state.view === 'dashboard') renderDashboard();
-    if (full.id && !Charts.expand(full.id, 'chart-full-canvas')) history.back();
+    if (full.id && !Charts.expand(full.id, 'chart-full-canvas', full.ranges[full.id])) history.back();
   }
 
   // ---------- theme ----------
@@ -395,6 +402,11 @@
       try { localStorage.setItem('theme', t.dataset.themePick); } catch {}
       applyTheme(t.dataset.themePick);
       return redrawCharts();
+    }
+    if (t.dataset.fullRange) {
+      full.ranges[full.id] = t.dataset.fullRange === 'all' ? 'all' : +t.dataset.fullRange;
+      $$('#full-range button').forEach(b => b.classList.toggle('on', b === t));
+      return Charts.expand(full.id, 'chart-full-canvas', full.ranges[full.id]);
     }
     if (t.dataset.range) {
       state.range = t.dataset.range === 'all' ? 'all' : +t.dataset.range;
